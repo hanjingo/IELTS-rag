@@ -1,16 +1,36 @@
-from langchain_community.document_loaders import DirectoryLoader
+from langchain_community.document_loaders import DirectoryLoader, TextLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain_community.llms import Ollama
 from langchain.chains import RetrievalQA
+from pathlib import Path
 
 # 设置你的知识库路径
 DATA_PATH = "./IELTS"
 
-# 创建一个加载器，它会自动处理路径下的 .md, .txt, .pdf 等文件
-loader = DirectoryLoader(DATA_PATH, silent_errors=True)
-raw_documents = loader.load()
+# 创建一个加载器，只处理 .md 和 .txt 文件，避免错误加载其他类型
+loader = DirectoryLoader(
+    DATA_PATH,
+    glob="**/*.[tm][dx][t]",  # 只加载 .txt 和 .md 文件
+    silent_errors=True
+)
+
+# 尝试加载文档，遇到无法读取的文件时跳过并打印警告
+raw_documents = []
+for file_path in Path(DATA_PATH).rglob("*.txt"):
+    try:
+        # 单独加载每个文件，避免整个加载过程因一个文件出错而中断
+        single_loader = DirectoryLoader(
+            str(file_path.parent),
+            glob=file_path.name,
+            loader_cls=TextLoader,  # Force text loader
+            silent_errors=True
+        )
+        docs = single_loader.load()
+        raw_documents.extend(docs)
+    except Exception as e:
+        print(f"[警告] 加载文件失败: {file_path}，原因: {e}")
 
 print(f"成功加载了 {len(raw_documents)} 份文档。")
 
@@ -39,10 +59,10 @@ embeddings = HuggingFaceEmbeddings(
 vectorstore = FAISS.from_documents(documents, embeddings)
 
 # [可选] 我们可以把建好的索引存到本地，下次就不用重新构建了
-vectorstore.save_local("faiss_index_directory")
+# vectorstore.save_local("faiss_index_directory")
 
 # 加载方式：
-# vectorstore = FAISS.load_local("faiss_index_directory", embeddings, allow_dangerous_deserialization=True)
+vectorstore = FAISS.load_local("faiss_index_directory", embeddings, allow_dangerous_deserialization=True)
 
 # 把它变成一个检索器（Retriever）
 retriever = vectorstore.as_retriever()
@@ -58,7 +78,7 @@ qa_chain = RetrievalQA.from_chain_type(
 )
 
 # 让我们来问个问题！
-question = "请问，RAG系统中的混合检索是什么？"
+question = "Traditional art is a sign of civilization. Do you think the government should subsidize musicians, painters, actors, or opera companies? What should the government do?"
 answer = qa_chain.invoke(question)
 
 print(answer)
