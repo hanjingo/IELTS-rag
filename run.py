@@ -145,13 +145,20 @@ def main():
         print(f"原因: {e}")
         print("[提示] 当前将降级为非 RAG 模式（仅使用本地 Ollama 直答）。")
         print(f"[提示] 请确保已执行: ollama pull {EMBEDDING_MODEL_NAME}")
-        question = (
-            "Traditional art is a sign of civilization. "
-            "Do you think the government should subsidize musicians, painters, "
-            "actors, or opera companies? What should the government do?"
-        )
-        answer = call_llm_direct(question)
-        print(answer)
+        print("已就绪（非 RAG 模式），输入问题后按回车，输入 exit 或按 Ctrl+C 退出。\n")
+        while True:
+            try:
+                question = input("Q> ").strip()
+            except (KeyboardInterrupt, EOFError):
+                print("\n再见！")
+                break
+            if not question:
+                continue
+            if question.lower() in {"exit", "quit", "q"}:
+                print("再见！")
+                break
+            answer = call_llm_direct(question)
+            print(f"A> {answer}\n")
         sys.exit(0)
 
     if has_local_index:
@@ -177,25 +184,50 @@ def main():
         llm=llm,
         chain_type="stuff",
         retriever=retriever,
+        return_source_documents=True,
     )
 
-    question = (
-        "Traditional art is a sign of civilization. "
-        "Do you think the government should subsidize musicians, painters, "
-        "actors, or opera companies? What should the government do?"
-    )
-    try:
-        answer = qa_chain.invoke(question)
-    except Exception as e:
-        print("[错误] RAG 问答执行失败。")
-        print(f"原因: {e}")
-        if available_models:
-            print(f"[提示] 当前可用模型: {', '.join(available_models)}")
-            print("[提示] 可通过环境变量 OLLAMA_MODEL 指定模型，例如: OLLAMA_MODEL=<你的模型名> python3 run.py")
+    print("已就绪，输入问题后按回车，输入 exit 或按 Ctrl+C 退出。\n")
+    while True:
+        try:
+            question = input("Q> ").strip()
+        except (KeyboardInterrupt, EOFError):
+            print("\n再见！")
+            break
+
+        if not question:
+            continue
+        if question.lower() in {"exit", "quit", "q"}:
+            print("再见！")
+            break
+
+        try:
+            result = qa_chain.invoke(question)
+        except Exception as e:
+            print("[错误] RAG 问答执行失败。")
+            print(f"原因: {e}")
+            if available_models:
+                print(f"[提示] 当前可用模型: {', '.join(available_models)}")
+            else:
+                print(f"[提示] 未检测到可用模型，请先执行: ollama pull {DEFAULT_OLLAMA_MODEL}")
+            sys.exit(1)
+
+        answer = result.get("result", result) if isinstance(result, dict) else result
+        print(f"A> {answer}\n")
+
+        # 打印检索到的素材来源，帮助判断答案是否来自 IELTS 素材库
+        source_docs = result.get("source_documents", []) if isinstance(result, dict) else []
+        if source_docs:
+            print("[来源] 以下素材被用于生成上述回答（来自 IELTS 素材库）：")
+            seen = set()
+            for doc in source_docs:
+                src = doc.metadata.get("source", "未知文件")
+                if src not in seen:
+                    seen.add(src)
+                    print(f"  - {src}")
         else:
-            print("[提示] 未检测到可用模型，请先执行: ollama pull qwen:7b-chat")
-        sys.exit(1)
-    print(answer)
+            print("[来源] 未检索到相关素材，回答完全由 Qwen 模型生成。")
+        print()
 
 
 if __name__ == "__main__":
